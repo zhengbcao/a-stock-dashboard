@@ -71,6 +71,52 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
   font-size: 12px; color: #4a6cf7;
 }
 
+/* ===== 板块多选下拉 ===== */
+.board-select { position: relative; display: inline-block; }
+.board-select .bs-btn {
+  padding: 6px 14px; border: 1px solid #cbd5e0; border-radius: 6px;
+  font-size: 13px; background: #fff; cursor: pointer;
+  display: flex; align-items: center; gap: 6px; min-width: 120px;
+  user-select: none; white-space: nowrap; transition: border-color .15s, box-shadow .15s;
+}
+.board-select .bs-btn:hover { border-color: #4a6cf7; }
+.board-select.open .bs-btn { border-color: #4a6cf7; box-shadow: 0 0 0 2px rgba(74,108,247,.15); }
+.board-select .bs-btn .arrow { font-size: 10px; color: #a0aec0; margin-left: auto; transition: transform .2s; }
+.board-select.open .bs-btn .arrow { transform: rotate(180deg); }
+.board-select .bs-dropdown {
+  display: none; position: absolute; top: calc(100% + 6px); left: 0;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.10); z-index: 50;
+  min-width: 170px; overflow: hidden; padding: 4px 0; animation: dsSlide .15s ease;
+}
+.board-select.open .bs-dropdown { display: block; }
+.board-select .bs-item {
+  padding: 8px 16px; cursor: pointer; font-size: 13px; color: #4a5568;
+  display: flex; align-items: center; gap: 8px; transition: background .1s;
+}
+.board-select .bs-item:hover { background: #f0f4ff; }
+.board-select .bs-item input { cursor: pointer; margin: 0; }
+.board-select .bs-divider { height: 1px; background: #edf2f7; margin: 4px 0; }
+.board-select .bs-all { color: #4a6cf7; font-weight: 600; }
+
+/* ===== 一键复制到 Excel 按钮 ===== */
+.copy-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 16px; background: #4a6cf7; color: #fff; border: none;
+  border-radius: 6px; font-size: 13px; cursor: pointer;
+  transition: background .2s, transform .1s; user-select: none; white-space: nowrap;
+}
+.copy-btn:hover { background: #3b5bdb; }
+.copy-btn:active { transform: scale(0.97); }
+.copy-btn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; }
+.copy-toast {
+  padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;
+  opacity: 0; transition: opacity .3s; pointer-events: none; white-space: nowrap;
+}
+.copy-toast.show { opacity: 1; }
+.copy-toast.ok { background: #c6f6d5; color: #276749; }
+.copy-toast.fail { background: #fed7d7; color: #9b2c2c; }
+
 /* ===== 表格容器 ===== */
 .table-wrap { overflow-x: auto; padding: 16px 32px 32px; }
 table {
@@ -178,13 +224,20 @@ svg.spark { display: block; }
 <div class="header">
   <h1>A股财报看板</h1>
   <div class="subtitle">最近 3 天 (2026-08-03 ~ 2026-08-05) 发布财报的沪深京 A 股上市公司 &middot; 最近 9 个季度经营数据</div>
-  <div class="update-time">数据更新: 2026-08-04 20:45</div>
+  <div class="update-time">数据更新: 2026-08-04 21:20</div>
 </div>
 
 <div class="toolbar">
   <input type="text" id="search" placeholder="搜索代码 / 名称 / 行业...">
   <select id="typeFilter"><option value="">全部类型</option></select>
   <select id="industryFilter"><option value="">全部行业</option></select>
+  <div class="board-select" id="boardSelect">
+    <div class="bs-btn" id="bsBtn">
+      <span id="bsLabel">全部板块</span>
+      <span class="arrow">&#9660;</span>
+    </div>
+    <div class="bs-dropdown" id="bsDropdown"></div>
+  </div>
   <div class="date-select" id="dateSelect">
     <div class="ds-btn" id="dsBtn">
       <span id="dsLabel">全部日期</span>
@@ -193,6 +246,11 @@ svg.spark { display: block; }
     <div class="ds-dropdown" id="dsDropdown"></div>
   </div>
   <span class="count" id="countLabel"></span>
+  <span class="copy-toast" id="copyToast"></span>
+  <button class="copy-btn" id="copyBtn" onclick="copyTable()">
+    <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+    一键复制到Excel
+  </button>
 </div>
 
 <div class="table-wrap">
@@ -332,6 +390,21 @@ var data = RAW_DATA.slice();
 /* 日期单选状态 */
 var selectedDate = '';
 
+/* 板块多选状态（默认全选） */
+var ALL_BOARDS = ['主板', '创业板', '科创板', '北交所'];
+var selectedBoards = new Set(ALL_BOARDS);
+
+function classifyBoard(code) {
+  code = String(code);
+  if (code.slice(0, 3) === '688' || code.slice(0, 3) === '689') return '科创板';
+  if (code.slice(0, 3) === '300' || code.slice(0, 3) === '301') return '创业板';
+  if (code.slice(0, 2) === '43' || code.slice(0, 2) === '83' || code.slice(0, 2) === '87' || code.slice(0, 3) === '920') return '北交所';
+  return '主板';
+}
+
+/* 当前视图（随筛选与排序更新，供一键复制使用） */
+var currentView = [];
+
 function render() {
   var search = document.getElementById('search').value.toLowerCase();
   var typeF = document.getElementById('typeFilter').value;
@@ -341,6 +414,7 @@ function render() {
     if (typeF && r.type !== typeF) return false;
     if (indF && r.industry !== indF) return false;
     if (selectedDate && r.pub_date !== selectedDate) return false;
+    if (!selectedBoards.has(classifyBoard(r.code))) return false;
     return true;
   });
 
@@ -354,6 +428,8 @@ function render() {
       return asc ? va - vb : vb - va;
     });
   }
+
+  currentView = filtered;
 
   var tbody = document.getElementById('tbody');
   tbody.innerHTML = filtered.map(function(r) {
@@ -437,6 +513,109 @@ function render() {
     if (!container.contains(e.target)) container.classList.remove('open');
   });
 })();
+
+/* 板块多选下拉 */
+(function() {
+  var dropdown = document.getElementById('bsDropdown');
+  var label = document.getElementById('bsLabel');
+  var btn = document.getElementById('bsBtn');
+  var container = document.getElementById('boardSelect');
+
+  var allItem = document.createElement('label');
+  allItem.className = 'bs-item bs-all';
+  allItem.innerHTML = '<input type="checkbox" id="bsAll" checked> 全部板块';
+  dropdown.appendChild(allItem);
+
+  var divider = document.createElement('div');
+  divider.className = 'bs-divider';
+  dropdown.appendChild(divider);
+
+  ALL_BOARDS.forEach(function(b) {
+    var item = document.createElement('label');
+    item.className = 'bs-item';
+    item.innerHTML = '<input type="checkbox" class="bs-cb" value="' + b + '" checked> ' + b;
+    dropdown.appendChild(item);
+  });
+
+  var allCb = document.getElementById('bsAll');
+  var cbs = Array.prototype.slice.call(dropdown.querySelectorAll('.bs-cb'));
+
+  function updateLabel() {
+    if (selectedBoards.size === ALL_BOARDS.length) label.textContent = '全部板块';
+    else if (selectedBoards.size === 0) label.textContent = '未选板块';
+    else label.textContent = '板块 (' + selectedBoards.size + ')';
+  }
+
+  function syncFromCbs() {
+    selectedBoards = new Set();
+    cbs.forEach(function(cb) { if (cb.checked) selectedBoards.add(cb.value); });
+    allCb.checked = (selectedBoards.size === ALL_BOARDS.length);
+    allCb.indeterminate = (selectedBoards.size > 0 && selectedBoards.size < ALL_BOARDS.length);
+    updateLabel();
+    render();
+  }
+
+  cbs.forEach(function(cb) { cb.addEventListener('change', syncFromCbs); });
+
+  allCb.addEventListener('change', function() {
+    cbs.forEach(function(cb) { cb.checked = allCb.checked; });
+    syncFromCbs();
+  });
+
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    container.classList.toggle('open');
+  });
+  document.addEventListener('click', function(e) {
+    if (!container.contains(e.target)) container.classList.remove('open');
+  });
+
+  updateLabel();
+})();
+
+/* 一键复制到 Excel（复制当前筛选 + 排序后的可见数据） */
+function copyTable() {
+  var toast = document.getElementById('copyToast');
+  var rows = currentView || [];
+
+  function flash(msg, ok) {
+    toast.textContent = msg;
+    toast.className = 'copy-toast show ' + (ok ? 'ok' : 'fail');
+    setTimeout(function() { toast.className = 'copy-toast'; }, 2500);
+  }
+
+  if (rows.length === 0) { flash('✖ 无数据可复制', false); return; }
+
+  var headers = ['代码', '名称', '行业', '日期', '类型',
+    '营收同比(%)', '营收环比(%)', '扣非同比(%)', '扣非环比(%)', '归母同比(%)', '归母环比(%)'];
+  var lines = [headers.join('\t')];
+  function pv(v) { return (v === null || v === undefined) ? '' : v; }
+  rows.forEach(function(r) {
+    lines.push([
+      r.code, r.name, (r.industry || ''), r.pub_date, r.type,
+      pv(r.rev_yoy), pv(r.rev_qoq), pv(r.ded_yoy), pv(r.ded_qoq), pv(r.prof_yoy), pv(r.prof_qoq)
+    ].join('\t'));
+  });
+  var text = lines.join('\n');
+
+  function fallback() {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    flash(ok ? '✔ 已复制 ' + rows.length + ' 条记录' : '✖ 复制失败，请手动选择', ok);
+  }
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function() {
+      flash('✔ 已复制 ' + rows.length + ' 条记录', true);
+    }).catch(fallback);
+  } else {
+    fallback();
+  }
+}
 
 document.getElementById('search').addEventListener('input', render);
 document.getElementById('typeFilter').addEventListener('change', render);

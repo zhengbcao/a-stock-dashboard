@@ -52,24 +52,29 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
   display: none; position: absolute; top: calc(100% + 6px); left: 0;
   background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0,0,0,.10); z-index: 50;
-  min-width: 150px; overflow: hidden;
+  min-width: 168px; overflow: hidden;
   padding: 4px 0; animation: dsSlide .15s ease;
 }
 @keyframes dsSlide { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 .date-select.open .ds-dropdown { display: block; }
-.date-select .ds-item {
-  padding: 8px 16px; cursor: pointer; font-size: 13px; color: #4a5568;
-  transition: background .1s, color .1s;
+
+/* ===== 多选下拉项（日期 / 板块 共用） ===== */
+.ms-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 16px; margin: 0; cursor: pointer;
+  font-size: 13px; color: #4a5568; text-align: left;
+  white-space: nowrap; transition: background .1s;
 }
-.date-select .ds-item:hover { background: #f0f4ff; color: #3b5bdb; }
-.date-select .ds-item.active {
-  background: #eef2ff; color: #4a6cf7; font-weight: 600;
-  position: relative;
+.ms-item:hover { background: #f0f4ff; }
+.ms-item input[type="checkbox"] {
+  flex: 0 0 14px; width: 14px; height: 14px; margin: 0;
+  cursor: pointer; accent-color: #4a6cf7;
 }
-.date-select .ds-item.active::before {
-  content: '✓'; position: absolute; right: 14px;
-  font-size: 12px; color: #4a6cf7;
+.ms-item span {
+  flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.ms-divider { height: 1px; background: #edf2f7; margin: 4px 0; }
+.ms-all { color: #4a6cf7; font-weight: 600; }
 
 /* ===== 板块多选下拉 ===== */
 .board-select { position: relative; display: inline-block; }
@@ -87,17 +92,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
   display: none; position: absolute; top: calc(100% + 6px); left: 0;
   background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0,0,0,.10); z-index: 50;
-  min-width: 170px; overflow: hidden; padding: 4px 0; animation: dsSlide .15s ease;
+  min-width: 150px; overflow: hidden; padding: 4px 0; animation: dsSlide .15s ease;
 }
 .board-select.open .bs-dropdown { display: block; }
-.board-select .bs-item {
-  padding: 8px 16px; cursor: pointer; font-size: 13px; color: #4a5568;
-  display: flex; align-items: center; gap: 8px; transition: background .1s;
-}
-.board-select .bs-item:hover { background: #f0f4ff; }
-.board-select .bs-item input { cursor: pointer; margin: 0; }
-.board-select .bs-divider { height: 1px; background: #edf2f7; margin: 4px 0; }
-.board-select .bs-all { color: #4a6cf7; font-weight: 600; }
 
 /* ===== 一键复制到 Excel 按钮 ===== */
 .copy-btn {
@@ -243,7 +240,7 @@ svg.spark { display: block; }
 <div class="header">
   <h1>A股财报看板</h1>
   <div class="subtitle">2026Q2 财报季 (2026-04-01 ~ 2026-08-31) 已发布财报的沪深京 A 股上市公司 &middot; 共 187 家 &middot; 最近 9 个季度经营数据</div>
-  <div class="update-time">数据更新: 2026-08-09 23:15</div>
+  <div class="update-time">数据更新: 2026-08-09 23:29</div>
 </div>
 
 <div class="toolbar">
@@ -408,8 +405,10 @@ function pctCell(val) {
 var sortCol = 'pub_date', sortState = 'desc';
 var data = RAW_DATA.slice();
 
-/* 日期单选状态 */
-var selectedDate = '';
+/* 日期多选状态（默认全选，倒序展示） */
+var ALL_DATES = Array.from(new Set(RAW_DATA.map(function(r) { return r.pub_date; })))
+                     .sort(function(a, b) { return b.localeCompare(a); });
+var selectedDates = new Set(ALL_DATES);
 
 /* 板块多选状态（默认全选） */
 var ALL_BOARDS = ['主板', '创业板', '科创板', '北交所'];
@@ -438,7 +437,7 @@ function render() {
     if (search && !(r.code.toLowerCase().indexOf(search) >= 0 || r.name.toLowerCase().indexOf(search) >= 0 || (r.industry||'').toLowerCase().indexOf(search) >= 0)) return false;
     if (typeF && r.type !== typeF) return false;
     if (indF && r.industry !== indF) return false;
-    if (selectedDate && r.pub_date !== selectedDate) return false;
+    if (!selectedDates.has(r.pub_date)) return false;
     if (!selectedBoards.has(classifyBoard(r.code))) return false;
     return true;
   });
@@ -548,38 +547,56 @@ function renderReset() {
   industries.forEach(function(t) { var o = document.createElement('option'); o.value = t; o.textContent = t; inf.appendChild(o); });
 })();
 
-/* 日期单选下拉 */
+/* 日期多选下拉（倒序：最新在前） */
 (function() {
-  var dates = Array.from(new Set(RAW_DATA.map(function(r) { return r.pub_date; }))).sort();
   var dropdown = document.getElementById('dsDropdown');
   var label = document.getElementById('dsLabel');
   var btn = document.getElementById('dsBtn');
   var container = document.getElementById('dateSelect');
 
-  var allItem = document.createElement('div');
-  allItem.className = 'ds-item active';
-  allItem.textContent = '全部日期';
-  allItem.dataset.value = '';
+  var allItem = document.createElement('label');
+  allItem.className = 'ms-item ms-all';
+  allItem.innerHTML = '<input type="checkbox" id="dsAll" checked><span>全部日期</span>';
   dropdown.appendChild(allItem);
 
-  dates.forEach(function(d) {
-    var item = document.createElement('div');
-    item.className = 'ds-item';
-    item.textContent = d;
-    item.dataset.value = d;
+  var divider = document.createElement('div');
+  divider.className = 'ms-divider';
+  dropdown.appendChild(divider);
+
+  ALL_DATES.forEach(function(d) {
+    var item = document.createElement('label');
+    item.className = 'ms-item';
+    item.innerHTML = '<input type="checkbox" class="ds-cb" value="' + d + '" checked><span>' + d + '</span>';
     dropdown.appendChild(item);
   });
 
-  dropdown.addEventListener('click', function(e) {
-    var item = e.target.closest('.ds-item');
-    if (!item) return;
-    dropdown.querySelectorAll('.ds-item').forEach(function(i) { i.classList.remove('active'); });
-    item.classList.add('active');
-    selectedDate = item.dataset.value;
-    label.textContent = selectedDate || '全部日期';
-    container.classList.remove('open');
+  var allCb = document.getElementById('dsAll');
+  var cbs = Array.prototype.slice.call(dropdown.querySelectorAll('.ds-cb'));
+
+  function updateLabel() {
+    if (selectedDates.size === ALL_DATES.length) label.textContent = '全部日期';
+    else if (selectedDates.size === 0) label.textContent = '未选日期';
+    else if (selectedDates.size === 1) label.textContent = Array.from(selectedDates)[0];
+    else label.textContent = '日期 (' + selectedDates.size + ')';
+  }
+
+  function syncFromCbs() {
+    selectedDates = new Set();
+    cbs.forEach(function(cb) { if (cb.checked) selectedDates.add(cb.value); });
+    allCb.checked = (selectedDates.size === ALL_DATES.length);
+    allCb.indeterminate = (selectedDates.size > 0 && selectedDates.size < ALL_DATES.length);
+    updateLabel();
     renderReset();
+  }
+
+  cbs.forEach(function(cb) { cb.addEventListener('change', syncFromCbs); });
+
+  allCb.addEventListener('change', function() {
+    cbs.forEach(function(cb) { cb.checked = allCb.checked; });
+    syncFromCbs();
   });
+
+  dropdown.addEventListener('click', function(e) { e.stopPropagation(); });
 
   btn.addEventListener('click', function(e) {
     e.stopPropagation();
@@ -588,6 +605,8 @@ function renderReset() {
   document.addEventListener('click', function(e) {
     if (!container.contains(e.target)) container.classList.remove('open');
   });
+
+  updateLabel();
 })();
 
 /* 板块多选下拉 */
@@ -598,18 +617,18 @@ function renderReset() {
   var container = document.getElementById('boardSelect');
 
   var allItem = document.createElement('label');
-  allItem.className = 'bs-item bs-all';
-  allItem.innerHTML = '<input type="checkbox" id="bsAll" checked> 全部板块';
+  allItem.className = 'ms-item ms-all';
+  allItem.innerHTML = '<input type="checkbox" id="bsAll" checked><span>全部板块</span>';
   dropdown.appendChild(allItem);
 
   var divider = document.createElement('div');
-  divider.className = 'bs-divider';
+  divider.className = 'ms-divider';
   dropdown.appendChild(divider);
 
   ALL_BOARDS.forEach(function(b) {
     var item = document.createElement('label');
-    item.className = 'bs-item';
-    item.innerHTML = '<input type="checkbox" class="bs-cb" value="' + b + '" checked> ' + b;
+    item.className = 'ms-item';
+    item.innerHTML = '<input type="checkbox" class="bs-cb" value="' + b + '" checked><span>' + b + '</span>';
     dropdown.appendChild(item);
   });
 

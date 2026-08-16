@@ -240,7 +240,7 @@ svg.spark { display: block; }
 <div class="header">
   <h1>A股财报看板</h1>
   <div class="subtitle">2026Q2 财报季 (2026-04-01 ~ 2026-08-31) 已发布财报的沪深京 A 股上市公司 &middot; 共 481 家 &middot; 最近 9 个季度经营数据</div>
-  <div class="update-time">数据更新: 2026-08-16 23:19</div>
+  <div class="update-time">数据更新: 2026-08-16 23:44</div>
 </div>
 
 <div class="toolbar">
@@ -685,9 +685,10 @@ function copyTable() {
     '营收同比(%)', '营收环比(%)', '扣非同比(%)', '扣非环比(%)', '归母同比(%)', '归母环比(%)'];
   var lines = [headers.join('\t')];
   function pv(v) { return (v === null || v === undefined) ? '' : v; }
+  function tc(v) { return '="' + v + '"'; }  /* 强制 Excel 按文本解析，保留股票代码前导零 */
   rows.forEach(function(r) {
     lines.push([
-      r.code, r.name, (r.industry || ''), r.pub_date, r.type,
+      tc(r.code), r.name, (r.industry || ''), r.pub_date, r.type,
       pv(r.rev_yoy), pv(r.rev_qoq), pv(r.ded_yoy), pv(r.ded_qoq), pv(r.prof_yoy), pv(r.prof_qoq)
     ].join('\t'));
   });

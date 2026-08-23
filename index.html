@@ -76,6 +76,33 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
 .ms-divider { height: 1px; background: #edf2f7; margin: 4px 0; }
 .ms-all { color: #4a6cf7; font-weight: 600; }
 
+/* ===== 行业多选下拉（带搜索） ===== */
+.ind-select { position: relative; display: inline-block; }
+.ind-select .ind-btn {
+  padding: 6px 14px; border: 1px solid #cbd5e0; border-radius: 6px;
+  font-size: 13px; background: #fff; cursor: pointer;
+  display: flex; align-items: center; gap: 6px; min-width: 120px;
+  user-select: none; white-space: nowrap; transition: border-color .15s, box-shadow .15s;
+}
+.ind-select .ind-btn:hover { border-color: #4a6cf7; }
+.ind-select.open .ind-btn { border-color: #4a6cf7; box-shadow: 0 0 0 2px rgba(74,108,247,.15); }
+.ind-select .ind-btn .arrow { font-size: 10px; color: #a0aec0; margin-left: auto; transition: transform .2s; }
+.ind-select.open .ind-btn .arrow { transform: rotate(180deg); }
+.ind-select .ind-dropdown {
+  display: none; position: absolute; top: calc(100% + 6px); left: 0;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.10); z-index: 50;
+  min-width: 180px; overflow: hidden; padding: 0; animation: dsSlide .15s ease;
+}
+.ind-select.open .ind-dropdown { display: block; }
+.ind-search-wrap { padding: 8px 12px 4px; }
+.ind-search {
+  width: 100%; box-sizing: border-box; padding: 5px 10px;
+  border: 1px solid #e2e8f0; border-radius: 6px; font-size: 12px; outline: none;
+}
+.ind-search:focus { border-color: #4a6cf7; }
+.ind-list { max-height: 280px; overflow-y: auto; padding: 4px 0; }
+
 /* ===== 板块多选下拉 ===== */
 .board-select { position: relative; display: inline-block; }
 .board-select .bs-btn {
@@ -240,13 +267,21 @@ svg.spark { display: block; }
 <div class="header">
   <h1>A股财报看板</h1>
   <div class="subtitle">2026Q2 财报季 (2026-04-01 ~ 2026-08-31) 已发布财报的沪深京 A 股上市公司 &middot; 共 1717 家 &middot; 最近 9 个季度经营数据</div>
-  <div class="update-time">数据更新: 2026-08-24 01:05</div>
+  <div class="update-time">数据更新: 2026-08-24 01:14</div>
 </div>
 
 <div class="toolbar">
   <input type="text" id="search" placeholder="搜索代码 / 名称 / 行业...">
   <select id="typeFilter"><option value="">全部类型</option></select>
-  <select id="industryFilter"><option value="">全部行业</option></select>
+  <div class="ind-select" id="indSelect">
+    <div class="ind-btn" id="indBtn">
+      <span id="indLabel">全部行业</span>
+      <span class="arrow">&#9660;</span>
+    </div>
+    <div class="ind-dropdown" id="indDropdown">
+      <div class="ind-search-wrap"><input type="text" class="ind-search" id="indSearch" placeholder="搜索行业..."></div>
+    </div>
+  </div>
   <div class="board-select" id="boardSelect">
     <div class="bs-btn" id="bsBtn">
       <span id="bsLabel">全部板块</span>
@@ -414,6 +449,11 @@ var selectedDates = new Set(ALL_DATES);
 var ALL_BOARDS = ['主板', '创业板', '科创板', '北交所'];
 var selectedBoards = new Set(ALL_BOARDS);
 
+/* 行业多选状态（默认全选） */
+var ALL_INDUSTRIES = Array.from(new Set(RAW_DATA.map(function(r) { return r.industry; })
+                    .filter(function(v) { return v && v !== '-'; }))).sort();
+var selectedIndustries = new Set(ALL_INDUSTRIES);
+
 function classifyBoard(code) {
   code = String(code);
   if (code.slice(0, 3) === '688' || code.slice(0, 3) === '689') return '科创板';
@@ -432,11 +472,11 @@ var currentPage = 1;
 function render() {
   var search = document.getElementById('search').value.toLowerCase();
   var typeF = document.getElementById('typeFilter').value;
-  var indF = document.getElementById('industryFilter').value;
   var filtered = data.filter(function(r) {
     if (search && !(r.code.toLowerCase().indexOf(search) >= 0 || r.name.toLowerCase().indexOf(search) >= 0 || (r.industry||'').toLowerCase().indexOf(search) >= 0)) return false;
     if (typeF && r.type !== typeF) return false;
-    if (indF && r.industry !== indF) return false;
+    var ind = r.industry || '-';
+    if (ind !== '-' && !selectedIndustries.has(ind)) return false;
     if (!selectedDates.has(r.pub_date)) return false;
     if (!selectedBoards.has(classifyBoard(r.code))) return false;
     return true;
@@ -540,11 +580,8 @@ function renderReset() {
 /* 填充筛选项 */
 (function() {
   var types = Array.from(new Set(RAW_DATA.map(function(r) { return r.type; }))).sort();
-  var industries = Array.from(new Set(RAW_DATA.map(function(r) { return r.industry; }).filter(function(v) { return v && v !== '-'; }))).sort();
   var tf = document.getElementById('typeFilter');
   types.forEach(function(t) { var o = document.createElement('option'); o.value = t; o.textContent = t; tf.appendChild(o); });
-  var inf = document.getElementById('industryFilter');
-  industries.forEach(function(t) { var o = document.createElement('option'); o.value = t; o.textContent = t; inf.appendChild(o); });
 })();
 
 /* 日期多选下拉（倒序：最新在前） */
@@ -601,6 +638,94 @@ function renderReset() {
   btn.addEventListener('click', function(e) {
     e.stopPropagation();
     container.classList.toggle('open');
+  });
+  document.addEventListener('click', function(e) {
+    if (!container.contains(e.target)) container.classList.remove('open');
+  });
+
+  updateLabel();
+})();
+
+/* 行业多选下拉（带搜索） */
+(function() {
+  var dropdown = document.getElementById('indDropdown');
+  var label = document.getElementById('indLabel');
+  var btn = document.getElementById('indBtn');
+  var container = document.getElementById('indSelect');
+  var searchInput = document.getElementById('indSearch');
+
+  /* 构建列表容器 */
+  var listWrap = document.createElement('div');
+  listWrap.className = 'ind-list';
+  dropdown.appendChild(listWrap);
+
+  var allItem = document.createElement('label');
+  allItem.className = 'ms-item ms-all';
+  allItem.innerHTML = '<input type="checkbox" id="indAll" checked><span>全部行业</span>';
+  listWrap.appendChild(allItem);
+
+  var divider = document.createElement('div');
+  divider.className = 'ms-divider';
+  listWrap.appendChild(divider);
+
+  ALL_INDUSTRIES.forEach(function(ind) {
+    var item = document.createElement('label');
+    item.className = 'ms-item';
+    item.setAttribute('data-ind', ind);
+    item.innerHTML = '<input type="checkbox" class="ind-cb" value="' + ind + '" checked><span>' + ind + '</span>';
+    listWrap.appendChild(item);
+  });
+
+  var allCb = document.getElementById('indAll');
+  var cbs = Array.prototype.slice.call(listWrap.querySelectorAll('.ind-cb'));
+
+  function updateLabel() {
+    if (selectedIndustries.size === ALL_INDUSTRIES.length) label.textContent = '全部行业';
+    else if (selectedIndustries.size === 0) label.textContent = '未选行业';
+    else if (selectedIndustries.size === 1) label.textContent = Array.from(selectedIndustries)[0];
+    else label.textContent = '行业 (' + selectedIndustries.size + ')';
+  }
+
+  function syncFromCbs() {
+    selectedIndustries = new Set();
+    cbs.forEach(function(cb) { if (cb.checked) selectedIndustries.add(cb.value); });
+    allCb.checked = (selectedIndustries.size === ALL_INDUSTRIES.length);
+    allCb.indeterminate = (selectedIndustries.size > 0 && selectedIndustries.size < ALL_INDUSTRIES.length);
+    updateLabel();
+    renderReset();
+  }
+
+  cbs.forEach(function(cb) { cb.addEventListener('change', syncFromCbs); });
+
+  allCb.addEventListener('change', function() {
+    /* "全部"只影响当前可见（搜索过滤后的）行业 */
+    var keyword = searchInput.value.trim().toLowerCase();
+    cbs.forEach(function(cb) {
+      var visible = !keyword || cb.value.toLowerCase().indexOf(keyword) >= 0;
+      if (visible) cb.checked = allCb.checked;
+    });
+    syncFromCbs();
+  });
+
+  /* 搜索过滤 */
+  searchInput.addEventListener('input', function() {
+    var keyword = this.value.trim().toLowerCase();
+    var items = listWrap.querySelectorAll('.ms-item:not(.ms-all)');
+    items.forEach(function(item) {
+      var ind = item.getAttribute('data-ind') || '';
+      item.style.display = (!keyword || ind.toLowerCase().indexOf(keyword) >= 0) ? '' : 'none';
+    });
+  });
+
+  dropdown.addEventListener('click', function(e) { e.stopPropagation(); });
+  searchInput.addEventListener('click', function(e) { e.stopPropagation(); });
+
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    container.classList.toggle('open');
+    if (container.classList.contains('open')) {
+      setTimeout(function() { searchInput.focus(); }, 50);
+    }
   });
   document.addEventListener('click', function(e) {
     if (!container.contains(e.target)) container.classList.remove('open');
@@ -715,7 +840,6 @@ function copyTable() {
 
 document.getElementById('search').addEventListener('input', renderReset);
 document.getElementById('typeFilter').addEventListener('change', renderReset);
-document.getElementById('industryFilter').addEventListener('change', renderReset);
 
 /* 排序 */
 function updateSortIcons() {
